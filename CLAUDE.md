@@ -5,7 +5,7 @@ a fork of sbancuz/PlanNH and was renamed on 2026-10-07 so the two never collide;
 world's NEI folder) and config files from before the rename are still read, then written under the new names.
 
 In-game, NEI-driven flowchart production planner for GT New Horizons: Minecraft 1.7.10, Forge 10.13.4.1614,
-client-side only. The planner UI is ModularUI2 in `ui/` (the Solve-mode board), the balancer is an ojAlgo ILP
+needed on both sides (the owner, 2026-10-13: `@NetworkCheckHandler` in `GtnhPlanner`). The planner UI is ModularUI2 in `ui/` (the Solve-mode board), the balancer is an ojAlgo ILP
 solved in the background (`data/flowchart/balancer/`, `SolveService`), auto-layout and wire routing are in
 `layout/`, recipe sources per mod are in `data/provider/`, and the NEI glue is in `nei/`.
 
@@ -250,6 +250,30 @@ solved in the background (`data/flowchart/balancer/`, `SolveService`), auto-layo
 - Multiblock pictures in `assets/gtnhplanner/textures/structures/` are Factory Flow's renders (`public/power-art`: the
   owner's processing multiblocks and the Power Planner workbook's power plants), scaled to 320 px palette PNGs with
   transparency. `ui/card/StructureArt` maps in-game machine names to them; `call 'gtmachines?art=1'` checks coverage.
+
+- The server side (`net/`, `server/`, `live/`, `client/sync/`): one channel, `gtnhplanner`
+  (`net/PlannerNetwork`), carrying `net/Proto` records (raise `Proto.PROTOCOL` whenever one changes shape) cut into
+  30 KB parts (`net/Chunker`). Every plan has a stable id (`Graph.planId`, saved with its slot, never in a plan code)
+  and the server revision it is based on. The world keeps its plans in `<world>/gtnhplanner/plans/` as opaque blobs
+  (`server/PlanStore`: the server never decodes a plan; a stale push still wins, the plan it overwrote kept as a
+  "conflict copy"; deletes go to `trash/`). `client/sync/SharedSync` says hello on joining, reconciles
+  (`Reconcile`), pushes a plan once it has been still 1.5 s and takes others' edits into its slot (`Plan.replaceSlot`,
+  `BoardSession.tookServerCopy`); for now every player sees every plan. Live status: the client watches the plan last
+  open (`PlanSnapshot`); `server/LiveScanner` reads each of its placed machines a player sees every 2 s (loaded chunks,
+  64 a tick), `server/GtProbe` reading GregTech defensively, and sends each player what changed among those. "A vista
+  d'occhio" (the progression, NPlanner-notes/PROGRESSION.md): a player sees a machine when its controller is within
+  `sightRadius` (config, 64) of them, a sphere in their dimension through walls (`server/Sight`), or on their network
+  (`server/NetworkReach`: the hook for BeCom's data nodes, none until BeCom has its API); `progression = off` sees
+  everything. A machine leaving sight is sent with no status: the client keeps what was seen, grey with its age, too old
+  after 60 s (`live/Seen`, `MachineStatus.Level.AWAY`). `ui/world/LiveBadge` draws the pill on cards and ghosts, the
+  coloured outline and the panel for the machine looked at. `/plannerserver plans|live` on the server.
+- Quests (`quest/`): with BetterQuesting (compileOnly, reached only from `quest/bq/`, loaded by name) an "NPlanner"
+  tab, added exactly as BeCom adds its own: the files in `assets/gtnhplanner/questline/` (GTNH's DefaultQuests layout,
+  fixed UUIDs) are written by `tools/quests/make_quests.py` with the lang text; `quest/bq/BqBackend` puts what is
+  missing into the book at server start and every `questlineRecheckSeconds`, keeping the quests' progress across a
+  DefaultQuests reload; the task type `gtnhplanner:event` (`QuestTask`) is completed by the planner
+  (`PlannerQuests.complete`), its conditions in `QuestChecks`. `questlineEnabled = false` leaves the book alone. A quest
+  whose task nothing reports yet has `waits` in the generator and is not written; drop it and run the generator again.
 
 ## Build and test
 

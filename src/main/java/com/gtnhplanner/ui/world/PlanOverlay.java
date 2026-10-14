@@ -326,9 +326,61 @@ public final class PlanOverlay {
             // The one looked at outlined: what the keys act on.
             if (p.card.id()
                 .equals(lit)) WorldMarks.outline(p.box, Hyb.LIT & 0xFFFFFF, 0.012f, 1.5f, 0.6f);
+            // How the machine built there is doing, as the server reads it: its outline in green, yellow or red.
+            final com.gtnhplanner.live.MachineStatus.Health h = health(p);
+            if (h != null && h.level() != com.gtnhplanner.live.MachineStatus.Level.UNKNOWN) WorldMarks
+                .outline(p.box, LiveBadge.color(h.level()) & 0xFFFFFF, 0.03f, 2.5f, LiveBadge.pulse(h.level()));
         }
         WorldMarks.end();
         lap("ar.ghosts");
+    }
+
+    /** What the player has seen of the machine at a placement ({@code client/sync/LiveStatus}), or null. */
+    @Nullable
+    private static com.gtnhplanner.live.Seen seen(final Placed p) {
+        final PlanSnapshot snap = PlanSnapshot.latest();
+        if (snap == null || p.preview || p.nth <= 0) return null;
+        return com.gtnhplanner.client.sync.LiveStatus.seen(
+            snap.graph()
+                .getPlanId(),
+            p.card.id(),
+            p.nth - 1);
+    }
+
+    /** The badge for a placement, grey out of sight, or null when nothing is known of it. */
+    @Nullable
+    private static com.gtnhplanner.live.MachineStatus.Health health(final Placed p) {
+        final com.gtnhplanner.live.Seen s = seen(p);
+        return s == null ? null
+            : s.health(
+                com.gtnhplanner.client.sync.LiveStatus.expectedMetaId(p.card.machine()),
+                System.currentTimeMillis());
+    }
+
+    /**
+     * Each placed machine's pill at the top of its ghost on the screen, and everything read of the one looked at in a
+     * panel beside it.
+     */
+    private void live(final List<Placed> all, final ScaledResolution sr) {
+        for (final Placed p : all) {
+            final com.gtnhplanner.live.MachineStatus.Health h = health(p);
+            if (h == null || h.level() == com.gtnhplanner.live.MachineStatus.Level.UNKNOWN) continue;
+            final com.gtnhplanner.live.Seen seen = seen(p);
+            final com.gtnhplanner.live.MachineStatus s = seen == null ? null : seen.current(System.currentTimeMillis());
+            final float[] r = onScreen(p.rect, sr);
+            if (r == null) continue;
+            final boolean looked = lookedAt != null && lookedAt.card.id()
+                .equals(p.card.id()) && lookedAt.x == p.x && lookedAt.y == p.y && lookedAt.z == p.z;
+            final float scale = looked || p.distance < 16 ? 1 : 0.75f;
+            final boolean away = h.level() == com.gtnhplanner.live.MachineStatus.Level.AWAY;
+            final String words = away || s == null ? h.text() : LiveBadge.words(s, h);
+            final float cx = (r[0] + r[2]) / 2, top = Math.max(2, r[1] - 14 * scale);
+            LiveBadge.pill(words, h.level(), cx - LiveBadge.width(words) * scale / 2, top, scale);
+            if (looked && s != null) {
+                final float x = Math.min(r[2] + 6, sr.getScaledWidth() - 170);
+                LiveBadge.panel(s, h, Math.max(2, x), Math.max(2, Math.min(r[1], sr.getScaledHeight() - 110)), 1);
+            }
+        }
     }
 
     /** Whether the card's machine is built on its block already: the block there is the machine. */
@@ -483,6 +535,8 @@ public final class PlanOverlay {
         lap("ar.wires");
         for (final MachineLabel.Placement l : labels) MachineLabel.draw(l);
         lap("ar.labels");
+        live(all, sr);
+        lap("ar.live");
         // Far to near, so nearer cards cover farther ones as objects do, the one looked at over the rest; the one the
         // crosshair is on over them all.
         Placed top = null;
